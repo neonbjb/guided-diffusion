@@ -3,6 +3,7 @@ Train a diffusion model on images.
 """
 
 import argparse
+import torch as th
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.image_datasets import load_data
@@ -19,8 +20,9 @@ from guided_diffusion.train_util import TrainLoop
 def main():
     args = create_argparser().parse_args()
 
-    dist_util.setup_dist()
-    logger.configure()
+    #dist_util.setup_dist()
+    th.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
+    logger.configure(format_strs=['stdout', 'tensorboard'])
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(

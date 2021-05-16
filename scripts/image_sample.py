@@ -9,6 +9,7 @@ import os
 import numpy as np
 import torch as th
 import torch.distributed as dist
+import torchvision
 
 from guided_diffusion import dist_util, logger
 from guided_diffusion.script_util import (
@@ -23,7 +24,8 @@ from guided_diffusion.script_util import (
 def main():
     args = create_argparser().parse_args()
 
-    dist_util.setup_dist()
+    #dist_util.setup_dist()
+    th.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
     logger.configure()
 
     logger.log("creating model and diffusion...")
@@ -41,6 +43,7 @@ def main():
     logger.log("sampling...")
     all_images = []
     all_labels = []
+    i = 1
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         if args.class_cond:
@@ -57,12 +60,12 @@ def main():
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
         )
-        sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        sample = sample.permute(0, 2, 3, 1)
-        sample = sample.contiguous()
 
         gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
         dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
+        gathered_samples = th.cat(gathered_samples, dim=0)
+        torchvision.utils.save_image(gathered_samples, os.path.join(logger.get_dir(), f'{i}.png'))
+        i += 1
         all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
         if args.class_cond:
             gathered_labels = [

@@ -3,7 +3,7 @@ import random
 
 from PIL import Image
 import blobfile as bf
-from mpi4py import MPI
+#from mpi4py import MPI
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
@@ -50,18 +50,18 @@ def load_data(
         image_size,
         all_files,
         classes=classes,
-        shard=MPI.COMM_WORLD.Get_rank(),
-        num_shards=MPI.COMM_WORLD.Get_size(),
+        shard=0,
+        num_shards=1,
         random_crop=random_crop,
         random_flip=random_flip,
     )
     if deterministic:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True
+            dataset, batch_size=batch_size, shuffle=False, num_workers=8, drop_last=True
         )
     else:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True
+            dataset, batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True
         )
     while True:
         yield from loader
