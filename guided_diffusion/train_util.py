@@ -39,7 +39,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
-        itermittent_sampling_steps=4000,
+        itermittent_sampling_steps=2000,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -175,7 +175,7 @@ class TrainLoop:
                 lowres = th.nn.functional.interpolate(self.first_batch, scale_factor=.25, mode="area")
                 model_kwargs = {'low_res': lowres.to('cuda')}
                 samples = self.diffusion.p_sample_loop(self.ddp_model, self.first_batch.shape, model_kwargs=model_kwargs)
-                torchvision.utils.save_image(samples, os.path.join(get_blob_logdir(), f'sample_{self.step}.png'))
+                torchvision.utils.save_image((samples+1)/2, os.path.join(get_blob_logdir(), f'sample_{self.step}.png'))
             self.step += 1
         # Save the last checkpoint if it wasn't already saved.
         if (self.step - 1) % self.save_interval != 0:
