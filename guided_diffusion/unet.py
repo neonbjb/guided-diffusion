@@ -6,6 +6,7 @@ import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision  # For debugging, not actually used.
 
 from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .nn import (
@@ -681,7 +682,8 @@ class SuperResModel(UNetModel):
         _, _, new_height, new_width = x.shape
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
         x = th.cat([x, upsampled], dim=1)
-        return super().forward(x, timesteps, **kwargs)
+        res = super().forward(x, timesteps, **kwargs)
+        return res
 
 
 class EncoderUNetModel(nn.Module):
