@@ -8,10 +8,14 @@ import os
 
 import blobfile as bf
 import numpy as np
+import torch
 import torch as th
 import torch.distributed as dist
+import torchvision
+from torch.utils.data import DataLoader
 
 from guided_diffusion import dist_util, logger
+from guided_diffusion.image_datasets import _list_image_files_recursively, ImageDataset
 from guided_diffusion.script_util import (
     sr_model_and_diffusion_defaults,
     sr_create_model_and_diffusion,
@@ -23,7 +27,8 @@ from guided_diffusion.script_util import (
 def main():
     args = create_argparser().parse_args()
 
-    dist_util.setup_dist()
+    #dist_util.setup_dist()
+    torch.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
     logger.configure()
 
     logger.log("creating model...")
@@ -37,28 +42,25 @@ def main():
     model.eval()
 
     logger.log("loading data...")
-    data = load_data_for_worker(args.base_samples, args.batch_size, args.class_cond)
+    data = load_data_for_worker(args.data_dir, args.batch_size, args.small_size)
 
     logger.log("creating samples...")
     all_images = []
+    i = 1
     while len(all_images) * args.batch_size < args.num_samples:
-        model_kwargs = next(data)
-        model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
         sample = diffusion.p_sample_loop(
             model,
             (args.batch_size, 3, args.large_size, args.large_size),
             clip_denoised=args.clip_denoised,
-            model_kwargs=model_kwargs,
+            model_kwargs={'low_res': next(data)[0].to('cuda')}
         )
-        sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        sample = sample.permute(0, 2, 3, 1)
-        sample = sample.contiguous()
 
-        all_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
-        dist.all_gather(all_samples, sample)  # gather not supported with NCCL
-        for sample in all_samples:
-            all_images.append(sample.cpu().numpy())
-        logger.log(f"created {len(all_images) * args.batch_size} samples")
+        gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
+        dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
+        gathered_samples = th.cat(gathered_samples, dim=0)
+        torchvision.utils.save_image(gathered_samples, os.path.join(logger.get_dir(), f'{i}.png'))
+        i += 1
+        logger.log(f"created {len(gathered_samples) * args.batch_size} samples")
 
     arr = np.concatenate(all_images, axis=0)
     arr = arr[: args.num_samples]
@@ -72,30 +74,12 @@ def main():
     logger.log("sampling complete")
 
 
-def load_data_for_worker(base_samples, batch_size, class_cond):
-    with bf.BlobFile(base_samples, "rb") as f:
-        obj = np.load(f)
-        image_arr = obj["arr_0"]
-        if class_cond:
-            label_arr = obj["arr_1"]
-    rank = dist.get_rank()
-    num_ranks = dist.get_world_size()
-    buffer = []
-    label_buffer = []
-    while True:
-        for i in range(rank, len(image_arr), num_ranks):
-            buffer.append(image_arr[i])
-            if class_cond:
-                label_buffer.append(label_arr[i])
-            if len(buffer) == batch_size:
-                batch = th.from_numpy(np.stack(buffer)).float()
-                batch = batch / 127.5 - 1.0
-                batch = batch.permute(0, 3, 1, 2)
-                res = dict(low_res=batch)
-                if class_cond:
-                    res["y"] = th.from_numpy(np.stack(label_buffer))
-                yield res
-                buffer, label_buffer = [], []
+def load_data_for_worker(data_dir, batch_size, small_image_size):
+    all_files = _list_image_files_recursively(data_dir)
+    dataset = ImageDataset(resolution=small_image_size, image_paths=all_files)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return iter(dataloader)
+
 
 
 def create_argparser():
@@ -104,8 +88,8 @@ def create_argparser():
         num_samples=10000,
         batch_size=16,
         use_ddim=False,
-        base_samples="",
         model_path="",
+        data_dir="",
     )
     defaults.update(sr_model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

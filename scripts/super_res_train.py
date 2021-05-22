@@ -4,6 +4,7 @@ Train a super-resolution model.
 
 import argparse
 
+import torch
 import torch.nn.functional as F
 
 from guided_diffusion import dist_util, logger
@@ -21,8 +22,9 @@ from guided_diffusion.train_util import TrainLoop
 def main():
     args = create_argparser().parse_args()
 
-    dist_util.setup_dist()
-    logger.configure()
+    #dist_util.setup_dist()
+    torch.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
+    logger.configure(format_strs=['stdout', 'tensorboard'])
 
     logger.log("creating model...")
     model, diffusion = sr_create_model_and_diffusion(
