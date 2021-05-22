@@ -154,10 +154,10 @@ class TensorBoardOutputFormat(KVWriter):
     Dumps key/value pairs into TensorBoard's numeric format.
     """
 
-    def __init__(self, dir):
+    def __init__(self, dir, initial_step=0):
         os.makedirs(dir, exist_ok=True)
         self.dir = dir
-        self.step = 1
+        self.step = initial_step
         prefix = "tblogger"
         path = osp.join(osp.abspath(dir), prefix)
         self.logger = SummaryWriter(log_dir=path)
@@ -171,7 +171,7 @@ class TensorBoardOutputFormat(KVWriter):
         pass
 
 
-def make_output_format(format, ev_dir, log_suffix=""):
+def make_output_format(format, ev_dir, initial_step=0, log_suffix=""):
     os.makedirs(ev_dir, exist_ok=True)
     if format == "stdout":
         return HumanOutputFormat(sys.stdout)
@@ -182,7 +182,7 @@ def make_output_format(format, ev_dir, log_suffix=""):
     elif format == "csv":
         return CSVOutputFormat(osp.join(ev_dir, "progress%s.csv" % log_suffix))
     elif format == "tensorboard":
-        return TensorBoardOutputFormat(osp.join(ev_dir, "tb%s" % log_suffix))
+        return TensorBoardOutputFormat(osp.join(ev_dir, "tb%s" % log_suffix), initial_step)
     else:
         raise ValueError("Unknown format specified: %s" % (format,))
 
@@ -422,7 +422,7 @@ def mpi_weighted_mean(comm, local_name2valcount):
         return {}
 
 
-def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
+def configure(initial_step=0, dir=None, format_strs=None, comm=None, log_suffix=""):
     """
     If comm is provided, average all numerical stats across that comm
     """
@@ -447,7 +447,7 @@ def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
         else:
             format_strs = os.getenv("OPENAI_LOG_FORMAT_MPI", "log").split(",")
     format_strs = filter(None, format_strs)
-    output_formats = [make_output_format(f, dir, log_suffix) for f in format_strs]
+    output_formats = [make_output_format(f, dir, log_suffix=log_suffix, initial_step=initial_step) for f in format_strs]
 
     Logger.CURRENT = Logger(dir=dir, output_formats=output_formats, comm=comm)
     if output_formats:

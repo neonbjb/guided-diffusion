@@ -24,7 +24,7 @@ def main():
 
     #dist_util.setup_dist()
     torch.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
-    logger.configure(format_strs=['stdout', 'tensorboard'])
+    logger.configure(initial_step=int(args.initial_step), format_strs=['stdout', 'tensorboard'])
 
     logger.log("creating model...")
     model, diffusion = sr_create_model_and_diffusion(
@@ -89,6 +89,7 @@ def create_argparser():
         resume_checkpoint="",
         use_fp16=False,
         fp16_scale_growth=1e-3,
+        initial_step=0,
     )
     defaults.update(sr_model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
