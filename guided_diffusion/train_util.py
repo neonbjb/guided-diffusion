@@ -5,6 +5,7 @@ import os
 import blobfile as bf
 import torch as th
 import torch.distributed as dist
+import torchvision
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
 
@@ -38,6 +39,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
+        itermittent_sampling_steps=4000,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -58,10 +60,11 @@ class TrainLoop:
         self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
+        self.itermittent_sampling_steps = itermittent_sampling_steps
 
         self.step = 0
         self.resume_step = 0
-        self.global_batch = self.batch_size * dist.get_world_size()
+        self.global_batch = self.batch_size
 
         self.sync_cuda = th.cuda.is_available()
 
@@ -92,8 +95,8 @@ class TrainLoop:
             self.use_ddp = True
             self.ddp_model = DDP(
                 self.model,
-                device_ids=[dist_util.dev()],
-                output_device=dist_util.dev(),
+                device_ids=['cuda'],
+                output_device='cuda',
                 broadcast_buffers=False,
                 bucket_cap_mb=128,
                 find_unused_parameters=False,
@@ -156,6 +159,10 @@ class TrainLoop:
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
             batch, cond = next(self.data)
+            # Store the first batch for validation purposes.
+            if not hasattr(self, 'first_batch'):
+                self.first_batch = batch[:16].clone()
+
             self.run_step(batch, cond)
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
@@ -164,6 +171,11 @@ class TrainLoop:
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
                     return
+            if self.step % self.itermittent_sampling_steps == 0:
+                lowres = th.nn.functional.interpolate(self.first_batch, scale_factor=.25, mode="area")
+                model_kwargs = {'low_res': lowres.to('cuda')}
+                samples = self.diffusion.p_sample_loop(self.ddp_model, self.first_batch.shape, model_kwargs=model_kwargs)
+                torchvision.utils.save_image(samples, os.path.join(get_blob_logdir(), f'sample_{self.step}.png'))
             self.step += 1
         # Save the last checkpoint if it wasn't already saved.
         if (self.step - 1) % self.save_interval != 0:
