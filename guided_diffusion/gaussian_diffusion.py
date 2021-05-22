@@ -10,6 +10,7 @@ import math
 
 import numpy as np
 import torch as th
+from tqdm import tqdm
 
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
@@ -513,13 +514,7 @@ class GaussianDiffusion:
             img = th.randn(*shape, device=device)
         indices = list(range(self.num_timesteps))[::-1]
 
-        if progress:
-            # Lazy import so that we don't depend on tqdm.
-            from tqdm.auto import tqdm
-
-            indices = tqdm(indices)
-
-        for i in indices:
+        for i in tqdm(indices):
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
                 out = self.p_sample(
