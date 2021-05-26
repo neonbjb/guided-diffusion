@@ -5,6 +5,7 @@ of samples from a regular model from image_sample.py.
 
 import argparse
 import os
+import random
 
 import blobfile as bf
 import numpy as np
@@ -26,6 +27,11 @@ from guided_diffusion.script_util import (
 
 def main():
     args = create_argparser().parse_args()
+
+    # Set seeds
+    torch.manual_seed(5555)
+    random.seed(5555)
+    np.random.seed(5555)
 
     #dist_util.setup_dist()
     torch.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
@@ -58,7 +64,7 @@ def main():
         gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
         dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
         gathered_samples = th.cat(gathered_samples, dim=0)
-        torchvision.utils.save_image(gathered_samples, os.path.join(logger.get_dir(), f'{i}.png'))
+        torchvision.utils.save_image((gathered_samples+1)/2, os.path.join(logger.get_dir(), f'{i}.png'))
         i += 1
         logger.log(f"created {len(gathered_samples) * args.batch_size} samples")
 
