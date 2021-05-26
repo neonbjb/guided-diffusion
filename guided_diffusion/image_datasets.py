@@ -1,4 +1,5 @@
 import math
+import os
 import random
 
 from PIL import Image
@@ -6,6 +7,7 @@ import blobfile as bf
 #from mpi4py import MPI
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import ToTensor
 
 
 def load_data(
@@ -17,6 +19,7 @@ def load_data(
     deterministic=False,
     random_crop=False,
     random_flip=True,
+    masks_path=None,
 ):
     """
     For a dataset, create a generator over (images, kwargs) pairs.
@@ -35,6 +38,7 @@ def load_data(
     :param deterministic: if True, yield results in a deterministic order.
     :param random_crop: if True, randomly crop the images for augmentation.
     :param random_flip: if True, randomly flip the images for augmentation.
+    :param masks_path: if set, a path where saliency masks can be found for the given images
     """
     if not data_dir:
         raise ValueError("unspecified data directory")
@@ -54,6 +58,7 @@ def load_data(
         num_shards=1,
         random_crop=random_crop,
         random_flip=random_flip,
+        masks_path=masks_path,
     )
     if deterministic:
         loader = DataLoader(
@@ -89,6 +94,7 @@ class ImageDataset(Dataset):
         num_shards=1,
         random_crop=False,
         random_flip=True,
+        masks_path=None
     ):
         super().__init__()
         self.resolution = resolution
@@ -96,6 +102,7 @@ class ImageDataset(Dataset):
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
         self.random_crop = random_crop
         self.random_flip = random_flip
+        self.masks_path = masks_path
 
     def __len__(self):
         return len(self.local_images)
@@ -108,6 +115,7 @@ class ImageDataset(Dataset):
         pil_image = pil_image.convert("RGB")
 
         if self.random_crop:
+            assert self.masks_path is not None  # This can be supported, it just isn't right now.
             arr = random_crop_arr(pil_image, self.resolution)
         else:
             arr = center_crop_arr(pil_image, self.resolution)
@@ -118,9 +126,21 @@ class ImageDataset(Dataset):
         arr = arr.astype(np.float32) / 127.5 - 1
 
         out_dict = {}
+        mask = np.ones_like(arr)
         if self.local_classes is not None:
             out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
-        return np.transpose(arr, [2, 0, 1]), out_dict
+
+        if self.masks_path is not None:
+            maskfile = os.path.join(self.masks_path, os.path.basename(path) + ".png")
+            try:
+                with bf.BlobFile(maskfile, 'rb') as f:
+                    pil_mask = Image.open(f)
+                    pil_mask.load()
+                    pil_mask = center_crop_arr(pil_mask, self.resolution)
+                    mask = pil_mask[:, ::-1].astype(np.float32) / 255.0
+            except:
+                print(f"Error loading mask {maskfile}")
+        return np.transpose(arr, [2,0,1]), np.transpose(mask, [2,0,1]), out_dict
 
 
 def center_crop_arr(pil_image, image_size):

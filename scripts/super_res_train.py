@@ -40,6 +40,7 @@ def main():
         large_size=args.large_size,
         small_size=args.small_size,
         class_cond=args.class_cond,
+        masks_path=args.masks_path,
     )
 
     logger.log("training...")
@@ -62,16 +63,17 @@ def main():
     ).run_loop()
 
 
-def load_superres_data(data_dir, batch_size, large_size, small_size, class_cond=False):
+def load_superres_data(data_dir, batch_size, large_size, small_size, class_cond=False, masks_path=None):
     data = load_data(
         data_dir=data_dir,
         batch_size=batch_size,
         image_size=large_size,
         class_cond=class_cond,
+        masks_path=masks_path,
     )
-    for large_batch, model_kwargs in data:
+    for large_batch, masks, model_kwargs in data:
         model_kwargs["low_res"] = F.interpolate(large_batch, small_size, mode="area")
-        yield large_batch, model_kwargs
+        yield large_batch, masks, model_kwargs
 
 
 def create_argparser():
@@ -90,6 +92,7 @@ def create_argparser():
         use_fp16=False,
         fp16_scale_growth=1e-3,
         initial_step=0,
+        masks_path=None,
     )
     defaults.update(sr_model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
