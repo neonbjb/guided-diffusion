@@ -496,6 +496,8 @@ class ResidualDenseBlock(TimestepBlock):
         for i in range(5):
             default_init_weights(getattr(self, f'conv{i + 1}'), init_weight)
 
+        self.normalize = nn.GroupNorm(num_groups=8, num_channels=mid_channels)
+
     def forward(self, x, emb):
         """Forward function.
 
@@ -518,8 +520,8 @@ class ResidualDenseBlock(TimestepBlock):
         x3 = self.lrelu(self.conv3(torch.cat((x, x1, x2), 1)))
         x4 = self.lrelu(self.conv4(torch.cat((x, x1, x2, x3), 1)))
         x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
-        # Emperically, we use 0.2 to scale the residual for better performance
-        return x5 * 0.2 + x
+
+        return self.normalize(x5 + x)
 
 
 class RRDB(TimestepBlock):
@@ -537,6 +539,7 @@ class RRDB(TimestepBlock):
         self.rdb1 = ResidualDenseBlock(mid_channels, growth_channels, embedding=True)
         self.rdb2 = ResidualDenseBlock(mid_channels, growth_channels)
         self.rdb3 = ResidualDenseBlock(mid_channels, growth_channels)
+        self.normalize = nn.GroupNorm(num_groups=8, num_channels=mid_channels)
 
     def forward(self, x, emb):
         """Forward function.
@@ -551,7 +554,7 @@ class RRDB(TimestepBlock):
         out = self.rdb2(out, emb)
         out = self.rdb3(out, emb)
 
-        return out * 0.2 + x
+        return self.normalize(out + x)
 
 
 class RRDBNet(nn.Module):
@@ -610,13 +613,14 @@ class RRDBNet(nn.Module):
         self.conv_last = nn.Conv2d(self.mid_channels, out_channels, 3, 1, 1)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        self.normalize = nn.GroupNorm(num_groups=8, num_channels=self.mid_channels)
 
         for m in [
             self.conv_body, self.conv_up1,
             self.conv_up2, self.conv_hr, self.conv_last
         ]:
             if m is not None:
-                default_init_weights(m, 0.1)
+                default_init_weights(m, 1.0)
 
     def forward(self, x, timesteps, low_res=None):
         emb = self.time_embed(timestep_embedding(timesteps, self.mid_channels))
@@ -630,14 +634,14 @@ class RRDBNet(nn.Module):
             feat = checkpoint(bl, feat, emb)
         feat = feat[:, :self.mid_channels]
         body_feat = self.conv_body(feat)
-        feat = feat + body_feat
+        feat = self.normalize(feat + body_feat)
 
         # upsample
         out = self.lrelu(
-            self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')))
+            self.normalize(self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest'))))
         out = self.lrelu(
-            self.conv_up2(F.interpolate(out, scale_factor=2, mode='nearest')))
-        out = self.conv_last(self.lrelu(self.conv_hr(out)))
+            self.normalize(self.conv_up2(F.interpolate(out, scale_factor=2, mode='nearest'))))
+        out = self.conv_last(self.normalize(self.lrelu(self.conv_hr(out))))
 
         return out
 
@@ -647,4 +651,5 @@ if __name__ == '__main__':
     x = torch.randn(1,3,128,128)
     l = torch.randn(1,3,32,32)
     t = torch.LongTensor([4])
-    print(model(x, t, l).shape)
+    y = model(x, t, l)
+    print(y.shape, y.mean(), y.std())
