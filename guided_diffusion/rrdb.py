@@ -493,8 +493,9 @@ class ResidualDenseBlock(TimestepBlock):
                 nn.Conv2d(mid_channels + i * growth_channels, out_channels, 3,
                           1, 1))
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        for i in range(5):
+        for i in range(4):
             default_init_weights(getattr(self, f'conv{i + 1}'), init_weight)
+        default_init_weights(self.conv5, 0)
 
         self.normalize = nn.GroupNorm(num_groups=8, num_channels=mid_channels)
 
@@ -617,10 +618,11 @@ class RRDBNet(nn.Module):
 
         for m in [
             self.conv_body, self.conv_up1,
-            self.conv_up2, self.conv_hr, self.conv_last
+            self.conv_up2, self.conv_hr
         ]:
             if m is not None:
                 default_init_weights(m, 1.0)
+        default_init_weights(self.conv_last, 0)
 
     def forward(self, x, timesteps, low_res=None):
         emb = self.time_embed(timestep_embedding(timesteps, self.mid_channels))
