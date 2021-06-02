@@ -23,7 +23,7 @@ def main():
     args = create_argparser().parse_args()
 
     #dist_util.setup_dist()
-    torch.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12345', world_size=1, rank=0)
+    torch.distributed.init_process_group(backend='gloo', init_method='tcp://localhost:12346', world_size=1, rank=0)
     logger.configure(initial_step=int(args.initial_step), format_strs=['stdout', 'tensorboard'])
 
     logger.log("creating model...")

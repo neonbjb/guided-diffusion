@@ -353,7 +353,7 @@ def sr_create_model(
     for res in attention_resolutions.split(","):
         attention_ds.append(large_size // int(res))
 
-    return RRDBNet(inchannels=6, out_channels=(3 if not learn_sigma else 6))
+    return RRDBNet(in_channels=6, out_channels=(3 if not learn_sigma else 6))
 
 
 def create_gaussian_diffusion(
