@@ -302,8 +302,9 @@ class RRDBNet(nn.Module):
         self.mid_channels = mid_channels
 
         # The diffusion RRDB starts with a full resolution image and downsamples into a .25 working space
-        self.input_blocks = nn.Sequential(ConvGnLelu(in_channels, mid_channels, kernel_size=7, stride=2, activation=True, norm=False, bias=True),
-                                          ConvGnLelu(mid_channels, mid_channels, kernel_size=3, stride=2, activation=True, norm=False, bias=True))
+        self.input_block = ConvGnLelu(in_channels, mid_channels, kernel_size=7, stride=1, activation=True, norm=True, bias=True)
+        self.down1 = ConvGnLelu(mid_channels, mid_channels, kernel_size=3, stride=2, activation=True, norm=True, bias=True)
+        self.down2 = ConvGnLelu(mid_channels, mid_channels, kernel_size=3, stride=2, activation=True, norm=True, bias=True)
 
         # Guided diffusion uses a time embedding.
         time_embed_dim = mid_channels * 4
@@ -322,9 +323,9 @@ class RRDBNet(nn.Module):
         self.conv_body = nn.Conv2d(self.mid_channels, self.mid_channels, 3, 1, 1)
         # upsample
         self.conv_up1 = nn.Conv2d(self.mid_channels, self.mid_channels, 3, 1, 1)
-        self.conv_up2 = nn.Conv2d(self.mid_channels, self.mid_channels, 3, 1, 1)
+        self.conv_up2 = nn.Conv2d(self.mid_channels*2, self.mid_channels, 3, 1, 1)
         self.conv_up3 = None
-        self.conv_hr = nn.Conv2d(self.mid_channels, self.mid_channels, 3, 1, 1)
+        self.conv_hr = nn.Conv2d(self.mid_channels*2, self.mid_channels, 3, 1, 1)
         self.conv_last = nn.Conv2d(self.mid_channels, out_channels, 3, 1, 1)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
@@ -345,7 +346,9 @@ class RRDBNet(nn.Module):
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
         x = torch.cat([x, upsampled], dim=1)
 
-        feat = self.input_blocks(x)
+        d1 = self.input_block(x)
+        d2 = self.down1(d1)
+        feat = self.down2(d2)
         for bl in self.body:
             feat = checkpoint(bl, feat, emb)
         feat = feat[:, :self.mid_channels]
@@ -353,10 +356,12 @@ class RRDBNet(nn.Module):
         feat = self.normalize(feat + body_feat)
 
         # upsample
-        out = self.lrelu(
-            self.normalize(self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest'))))
-        out = self.lrelu(
-            self.normalize(self.conv_up2(F.interpolate(out, scale_factor=2, mode='nearest'))))
+        out = torch.cat([self.lrelu(
+            self.normalize(self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')))),
+            d2], dim=1)
+        out = torch.cat([self.lrelu(
+            self.normalize(self.conv_up2(F.interpolate(out, scale_factor=2, mode='nearest')))),
+            d1], dim=1)
         out = self.conv_last(self.normalize(self.lrelu(self.conv_hr(out))))
 
         return out
