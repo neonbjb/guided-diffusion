@@ -3,13 +3,14 @@ from abc import abstractmethod
 import math
 
 import numpy as np
+import torch
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision  # For debugging, not actually used.
 
-from .fp16_util import convert_module_to_f16, convert_module_to_f32
-from .nn import (
+from guided_diffusion.fp16_util import convert_module_to_f16, convert_module_to_f32
+from guided_diffusion.nn import (
     checkpoint,
     conv_nd,
     linear,
@@ -902,3 +903,15 @@ class EncoderUNetModel(nn.Module):
         else:
             h = h.type(x.dtype)
             return self.out(h)
+
+if __name__ == '__main__':
+    attention_ds = []
+    for res in "16,8".split(","):
+        attention_ds.append(128 // int(res))
+    srm = SuperResModel(image_size=128, in_channels=3, model_channels=64, out_channels=3, num_res_blocks=1, attention_resolutions=attention_ds, num_heads=4,
+                        num_heads_upsample=-1, use_scale_shift_norm=True, use_checkpoint=True)
+    x = torch.randn(1,3,128,128)
+    l = torch.randn(1,3,32,32)
+    ts = torch.LongTensor([555])
+    y = srm(x, ts, low_res=l)
+    print(y.shape, y.mean(), y.std(), y.min(), y.max())

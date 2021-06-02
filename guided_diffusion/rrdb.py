@@ -650,6 +650,6 @@ if __name__ == '__main__':
     model = RRDBNet(6,6)
     x = torch.randn(1,3,128,128)
     l = torch.randn(1,3,32,32)
-    t = torch.LongTensor([4])
+    t = torch.LongTensor([555])
     y = model(x, t, l)
-    print(y.shape, y.mean(), y.std())
+    print(y.shape, y.mean(), y.std(), y.min(), y.max())
